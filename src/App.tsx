@@ -22,7 +22,7 @@ const getDistance = (p1: { x: number, y: number }, p2: { x: number, y: number })
   return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
 };
 
-// --- Hook: 语音控制模块 (中英双语版) ---
+// --- Hook: 语音控制模块 (实时字幕增强版) ---
 const useJarvisVoice = (
   earthRotation: React.MutableRefObject<{ x: number; y: number }>,
   setHandStatus: (status: string) => void
@@ -36,54 +36,52 @@ const useJarvisVoice = (
 
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
+    recognition.lang = 'zh-CN'; // 保持中文识别
     
-    // 关键修改：设置为中文模式 (中文模式下通常也能识别简单的英文单词)
-    recognition.lang = 'zh-CN'; 
-    recognition.interimResults = false;
+    // ⬇️ 关键修改：开启临时结果，实现打字机效果
+    recognition.interimResults = true; 
 
     recognition.onstart = () => setIsListening(true);
     recognition.onend = () => { 
         setIsListening(false); 
-        // 自动重启机制
-        setTimeout(() => {
-            try { recognition.start(); } catch(e) {}
-        }, 1000); 
+        setTimeout(() => { try { recognition.start(); } catch(e) {} }, 1000); 
     };
 
     recognition.onresult = (event: any) => {
-      const lastResult = event.results[event.results.length - 1];
-      const command = lastResult[0].transcript.trim().toLowerCase();
-      
-      // 在屏幕上显示听到的内容，方便调试
-      setHandStatus(`CMD: "${command}"`);
-      console.log("识别结果:", command);
+      let finalTranscript = '';
+      let interimTranscript = '';
 
-      // --- 复合指令逻辑 (同时匹配中文和英文关键词) ---
-      
-      // 1. 非洲 (Africa)
-      if (command.includes('africa') || command.includes('非洲')) {
-        earthRotation.current = { x: 0, y: 0.5 };
-      } 
-      // 2. 亚洲 (Asia / China)
-      else if (command.includes('asia') || command.includes('china') || command.includes('亚洲') || command.includes('中国')) {
-        earthRotation.current = { x: 0.2, y: 2.0 };
-      } 
-      // 3. 美洲 (America / USA)
-      else if (command.includes('america') || command.includes('usa') || command.includes('美洲') || command.includes('美国')) {
-        earthRotation.current = { x: 0, y: 4.8 };
-      } 
-      // 4. 欧洲 (Europe)
-      else if (command.includes('europe') || command.includes('欧洲')) {
-        earthRotation.current = { x: 0.3, y: 5.8 };
-      } 
-      // 5. 重置/停止 (Reset / Stop)
-      else if (command.includes('reset') || command.includes('stop') || command.includes('重置') || command.includes('复位')) {
-        earthRotation.current = { x: 0, y: 0 };
+      // 遍历所有返回的结果（包括确认的和临时的）
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          finalTranscript += event.results[i][0].transcript;
+          
+          // --- 只有在整句确认后，才执行指令 (防止误触) ---
+          const command = finalTranscript.trim().toLowerCase();
+          console.log("最终指令:", command);
+          
+          if (command.includes('africa') || command.includes('非洲')) earthRotation.current = { x: 0, y: 0.5 };
+          else if (command.includes('asia') || command.includes('china') || command.includes('亚洲')) earthRotation.current = { x: 0.2, y: 2.0 };
+          else if (command.includes('america') || command.includes('usa') || command.includes('美洲')) earthRotation.current = { x: 0, y: 4.8 };
+          else if (command.includes('europe') || command.includes('欧洲')) earthRotation.current = { x: 0.3, y: 5.8 };
+          else if (command.includes('reset') || command.includes('stop') || command.includes('重置')) earthRotation.current = { x: 0, y: 0 };
+          
+        } else {
+          interimTranscript += event.results[i][0].transcript;
+        }
+      }
+
+      // --- UI 更新逻辑 ---
+      // 优先显示临时拼凑的句子，让用户知道系统在听
+      const feedbackText = interimTranscript || finalTranscript;
+      if (feedbackText) {
+          setHandStatus(`CMD: "${feedbackText}"`);
+      } else {
+          setHandStatus("...LISTENING...");
       }
     };
 
     try { recognition.start(); } catch (e) { console.error(e); }
-    
     return () => recognition.stop();
   }, []);
 
