@@ -22,12 +22,13 @@ const getDistance = (p1: { x: number, y: number }, p2: { x: number, y: number })
   return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
 };
 
-// --- Hook: 语音控制模块 (极速响应版) ---
+// --- Hook: 语音控制模块 (完整修正版) ---
 const useJarvisVoice = (
   earthRotation: React.MutableRefObject<{ x: number; y: number }>,
   setHandStatus: (status: string) => void
 ) => {
   const [isListening, setIsListening] = useState(false);
+  const lastCmdTimeRef = useRef(0); // 记录最后指令时间
 
   useEffect(() => {
     // @ts-ignore
@@ -37,40 +38,39 @@ const useJarvisVoice = (
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
     recognition.lang = 'zh-CN'; 
-    recognition.interimResults = true; // 必须开启
+    recognition.interimResults = true;
 
     recognition.onstart = () => setIsListening(true);
     recognition.onend = () => { 
         setIsListening(false); 
-        // 掉线自动重连
         setTimeout(() => { try { recognition.start(); } catch(e) {} }, 1000); 
     };
 
     recognition.onresult = (event: any) => {
-      // 获取最新的一段语音（无论是正在说还是已说完）
       const lastResult = event.results[event.results.length - 1];
       const text = lastResult[0].transcript.trim().toLowerCase();
       
-      // 1. 实时更新 UI
       setHandStatus(`CMD: "${text}"`);
 
-      // 2. 移除 isFinal 判断，直接进行关键词匹配
-      // 只要句子中包含关键词，立刻执行，不需要等整句结束
-      
+      let matched = false;
       if (text.includes('africa') || text.includes('非洲')) {
-        earthRotation.current = { x: 0, y: 0.5 };
+        earthRotation.current = { x: 0, y: 0.5 }; matched = true;
       } 
       else if (text.includes('asia') || text.includes('china') || text.includes('亚洲') || text.includes('中国')) {
-        earthRotation.current = { x: 0.2, y: 2.0 };
+        earthRotation.current = { x: 0.2, y: 2.0 }; matched = true;
       } 
       else if (text.includes('america') || text.includes('usa') || text.includes('美洲') || text.includes('美国')) {
-        earthRotation.current = { x: 0, y: 4.8 };
+        earthRotation.current = { x: 0, y: 4.8 }; matched = true;
       } 
       else if (text.includes('europe') || text.includes('欧洲')) {
-        earthRotation.current = { x: 0.3, y: 5.8 };
+        earthRotation.current = { x: 0.3, y: 5.8 }; matched = true;
       } 
-      else if (text.includes('reset') || text.includes('stop') || text.includes('重置') || text.includes('停止')) {
-        earthRotation.current = { x: 0, y: 0 };
+      else if (text.includes('reset') || text.includes('stop') || text.includes('重置')) {
+        earthRotation.current = { x: 0, y: 0 }; matched = true;
+      }
+
+      if (matched) {
+         lastCmdTimeRef.current = Date.now(); // 更新时间戳
       }
     };
 
@@ -78,7 +78,7 @@ const useJarvisVoice = (
     return () => recognition.stop();
   }, []);
 
-  return isListening;
+  return { isListening, lastCmdTimeRef };
 };
 
 // --- 组件: 全息地球 ---
@@ -88,8 +88,9 @@ const HolographicEarth = ({ rotationRef, scaleRef, setContinent }: any) => {
 
   useFrame(() => {
     if (earthRef.current) {
-      earthRef.current.rotation.y = lerp(earthRef.current.rotation.y, rotationRef.current.y, 0.1);
-      earthRef.current.rotation.x = lerp(earthRef.current.rotation.x, rotationRef.current.x, 0.1);
+      // 使用 Lerp 平滑过渡，这样语音指令切换时会慢慢转过去
+      earthRef.current.rotation.y = lerp(earthRef.current.rotation.y, rotationRef.current.y, 0.05);
+      earthRef.current.rotation.x = lerp(earthRef.current.rotation.x, rotationRef.current.x, 0.05);
       const newScale = lerp(earthRef.current.scale.x, scaleRef.current, 0.1);
       earthRef.current.scale.set(newScale, newScale, newScale);
 
@@ -125,7 +126,9 @@ export default function JarvisHUD() {
   
   const earthRotation = useRef({ x: 0, y: 0 });
   const earthScale = useRef(1);
-  const voiceActive = useJarvisVoice(earthRotation, setHandStatus);
+
+  // 1. 调用 Hook 并获取 lastCmdTimeRef
+  const { isListening: voiceActive, lastCmdTimeRef } = useJarvisVoice(earthRotation, setHandStatus);
 
   useEffect(() => {
     let vision: HandLandmarker;
@@ -153,7 +156,8 @@ export default function JarvisHUD() {
             const drawingUtils = new DrawingUtils(ctx);
             
             if (results.landmarks.length > 0) {
-              setHandStatus(`TARGETS: ${results.landmarks.length}`);
+              // setHandStatus(`TARGETS: ${results.landmarks.length}`); // 这一行先注释掉，避免覆盖语音字幕
+              
               results.landmarks.forEach((landmarks) => {
                 ctx.shadowBlur = 10; ctx.shadowColor = THEME_COLOR;
                 drawingUtils.drawConnectors(landmarks, HandLandmarker.HAND_CONNECTIONS, { color: THEME_COLOR, lineWidth: 2 });
@@ -164,13 +168,23 @@ export default function JarvisHUD() {
                 const indexTip = landmarks[8];
                 const midX = landmarks[9].x; const midY = landmarks[9].y;
 
-                if (wrist.x > 0.5) { // 左手控制地球 (镜像)
-                   earthRotation.current.y = (midX - 0.5) * 8; 
-                   earthRotation.current.x = (midY - 0.5) * 4;
-                   const pinch = getDistance(thumbTip, indexTip);
-                   earthScale.current = Math.max(0.5, Math.min(2.5, pinch * 8));
-                } else { // 右手拖拽面板
+                // 2. 检查是否处于“语音控制优先期” (3000ms)
+                const isVoiceControlling = Date.now() - lastCmdTimeRef.current < 3000;
+
+                // 左手逻辑 (屏幕左侧，通常是镜像后的右手)
+                if (wrist.x > 0.5) { 
+                   // 只有当语音没在控制时，手势才生效
+                   if (!isVoiceControlling) {
+                       earthRotation.current.y = (midX - 0.5) * 8; 
+                       earthRotation.current.x = (midY - 0.5) * 4;
+                       const pinch = getDistance(thumbTip, indexTip);
+                       earthScale.current = Math.max(0.5, Math.min(2.5, pinch * 8));
+                   }
+                } 
+                // 右手逻辑 (屏幕右侧) - 始终允许拖拽面板
+                else { 
                     if (getDistance(thumbTip, indexTip) < 0.05) {
+                        // 注意：这里需要反转 X 坐标以匹配镜像
                         setPanelUI({ x: (1 - indexTip.x) * window.innerWidth, y: indexTip.y * window.innerHeight });
                     }
                 }
@@ -207,7 +221,8 @@ export default function JarvisHUD() {
                 <Activity className="w-5 h-5 animate-pulse" />
                 <span className="font-bold tracking-widest">SYSTEM_READY</span>
             </div>
-            <div className="text-xs opacity-80">{handStatus}</div>
+            {/* 显示当前指令或状态 */}
+            <div className="text-xs opacity-80 min-h-[20px]">{handStatus}</div>
             <div className="flex items-center gap-2 mt-2 text-xs">
                  <div className={`w-2 h-2 rounded-full ${voiceActive ? 'bg-red-500 animate-pulse' : 'bg-gray-500'}`}></div>
                  <span>VOICE: {voiceActive ? 'ON' : 'OFF'}</span>
@@ -226,6 +241,8 @@ export default function JarvisHUD() {
                 <span className="text-xs px-1 border border-cyan-400">LIVE</span>
             </div>
             <div className="text-2xl font-bold text-white drop-shadow-md">{activeContinent}</div>
+            {/* 新增一个小提示 */}
+            <div className="text-[10px] text-gray-400 mt-2">PINCH TO MOVE</div>
         </div>
 
         {loading && (
