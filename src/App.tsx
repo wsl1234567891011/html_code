@@ -22,12 +22,13 @@ const getDistance = (p1: { x: number, y: number }, p2: { x: number, y: number })
   return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
 };
 
-// --- Hook: 语音控制模块 ---
+// --- Hook: 语音控制模块 (中英双语版) ---
 const useJarvisVoice = (
   earthRotation: React.MutableRefObject<{ x: number; y: number }>,
   setHandStatus: (status: string) => void
 ) => {
   const [isListening, setIsListening] = useState(false);
+
   useEffect(() => {
     // @ts-ignore
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -35,26 +36,57 @@ const useJarvisVoice = (
 
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
-    recognition.lang = 'en-US'; 
+    
+    // 关键修改：设置为中文模式 (中文模式下通常也能识别简单的英文单词)
+    recognition.lang = 'zh-CN'; 
     recognition.interimResults = false;
 
     recognition.onstart = () => setIsListening(true);
-    recognition.onend = () => { setIsListening(false); setTimeout(() => recognition.start(), 1000); };
+    recognition.onend = () => { 
+        setIsListening(false); 
+        // 自动重启机制
+        setTimeout(() => {
+            try { recognition.start(); } catch(e) {}
+        }, 1000); 
+    };
+
     recognition.onresult = (event: any) => {
       const lastResult = event.results[event.results.length - 1];
       const command = lastResult[0].transcript.trim().toLowerCase();
-      setHandStatus(`VOICE: "${command.toUpperCase()}"`);
       
-      if (command.includes('africa')) earthRotation.current = { x: 0, y: 0.5 };
-      else if (command.includes('asia') || command.includes('china')) earthRotation.current = { x: 0.2, y: 2.0 };
-      else if (command.includes('america')) earthRotation.current = { x: 0, y: 4.8 };
-      else if (command.includes('europe')) earthRotation.current = { x: 0.3, y: 5.8 };
-      else if (command.includes('reset')) earthRotation.current = { x: 0, y: 0 };
+      // 在屏幕上显示听到的内容，方便调试
+      setHandStatus(`CMD: "${command}"`);
+      console.log("识别结果:", command);
+
+      // --- 复合指令逻辑 (同时匹配中文和英文关键词) ---
+      
+      // 1. 非洲 (Africa)
+      if (command.includes('africa') || command.includes('非洲')) {
+        earthRotation.current = { x: 0, y: 0.5 };
+      } 
+      // 2. 亚洲 (Asia / China)
+      else if (command.includes('asia') || command.includes('china') || command.includes('亚洲') || command.includes('中国')) {
+        earthRotation.current = { x: 0.2, y: 2.0 };
+      } 
+      // 3. 美洲 (America / USA)
+      else if (command.includes('america') || command.includes('usa') || command.includes('美洲') || command.includes('美国')) {
+        earthRotation.current = { x: 0, y: 4.8 };
+      } 
+      // 4. 欧洲 (Europe)
+      else if (command.includes('europe') || command.includes('欧洲')) {
+        earthRotation.current = { x: 0.3, y: 5.8 };
+      } 
+      // 5. 重置/停止 (Reset / Stop)
+      else if (command.includes('reset') || command.includes('stop') || command.includes('重置') || command.includes('复位')) {
+        earthRotation.current = { x: 0, y: 0 };
+      }
     };
 
     try { recognition.start(); } catch (e) { console.error(e); }
+    
     return () => recognition.stop();
   }, []);
+
   return isListening;
 };
 
