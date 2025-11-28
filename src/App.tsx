@@ -53,20 +53,31 @@ const useJarvisVoice = (
       setHandStatus(`CMD: "${text}"`);
 
       let matched = false;
+     // --- 校准后的坐标数据 ---
+      // 这里的数值是根据 CONTINENTS 的弧度范围反向计算的，确保文字和画面一致
+      
       if (text.includes('africa') || text.includes('非洲')) {
-        earthRotation.current = { x: 0, y: 0.5 }; matched = true;
+        earthRotation.current = { x: 0, y: 0 }; // 非洲 (0 rad)
+        matched = true;
       } 
       else if (text.includes('asia') || text.includes('china') || text.includes('亚洲') || text.includes('中国')) {
-        earthRotation.current = { x: 0.2, y: 2.0 }; matched = true;
+        // 之前是 2.0 (会导致识别为美洲)，现在改为 4.5
+        earthRotation.current = { x: 0.2, y: 4.5 }; 
+        matched = true;
       } 
       else if (text.includes('america') || text.includes('usa') || text.includes('美洲') || text.includes('美国')) {
-        earthRotation.current = { x: 0, y: 4.8 }; matched = true;
+        // 之前是 4.8 (会导致识别为亚洲)，现在改为 1.5
+        earthRotation.current = { x: 0, y: 1.5 }; 
+        matched = true;
       } 
       else if (text.includes('europe') || text.includes('欧洲')) {
-        earthRotation.current = { x: 0.3, y: 5.8 }; matched = true;
+        // 之前是 5.8，微调为 0.5 以更精准匹配欧洲板块
+        earthRotation.current = { x: 0.3, y: 0.5 }; 
+        matched = true;
       } 
-      else if (text.includes('reset') || text.includes('stop') || text.includes('重置')) {
-        earthRotation.current = { x: 0, y: 0 }; matched = true;
+      else if (text.includes('reset') || text.includes('stop') || text.includes('重置') || text.includes('停止')) {
+        earthRotation.current = { x: 0, y: 0 };
+        matched = true;
       }
 
       if (matched) {
