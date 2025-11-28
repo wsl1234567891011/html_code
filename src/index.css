@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  background-color: #000000;
+  color: #00FFFF;
+  font-family: 'Courier New', Courier, monospace; /* 更有代码感 */
+}
+
+body {
+  margin: 0;
+  overflow: hidden; /* 防止滚动条出现 */
+}
+
+/* 镜像翻转工具类 */
+.flip-horizontal {
+  transform: scaleX(-1);
+}
